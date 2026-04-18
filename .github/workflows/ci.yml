@@ -10,22 +10,22 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build
-        run: cargo build --release
       - name: Check formatting
         run: cargo fmt -- --check
       - name: Clippy
         run: cargo clippy -- -D warnings
+      - name: Build
+        run: cargo build --release
 
   test-multiplier:
     runs-on: ubuntu-latest
-    needs: build
+    needs: lint
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -42,7 +42,7 @@ jobs:
       - name: Create test circuit
         run: |
           mkdir -p test_circuit
-          cat > test_circuit/multiplier.circom << 'CIRCOM'
+          cat > test_circuit/multiplier.circom <<'CIRCOM'
           pragma circom 2.0.0;
           template Multiplier() {
               signal input a;
@@ -91,12 +91,11 @@ jobs:
       - name: Verify proof with snarkjs
         run: |
           cd test_circuit
-          echo '{"a": "3", "b": "5"}' > input.json
           node -e "
           const s = require('snarkjs');
           (async () => {
-            const r = await s.groth16.fullProve({a:'3',b:'5'}, 'multiplier_js/multiplier.wasm', '../test_circuit/rust_0000.zkey');
-            const vk = await s.zKey.exportVerificationKey('../test_circuit/rust_0000.zkey');
+            const r = await s.groth16.fullProve({a:'3',b:'5'}, 'multiplier_js/multiplier.wasm', 'rust_0000.zkey');
+            const vk = await s.zKey.exportVerificationKey('rust_0000.zkey');
             const ok = await s.groth16.verify(vk, r.publicSignals, r.proof);
             console.log('Verify:', ok);
             if (!ok) process.exit(1);

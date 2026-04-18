@@ -10,6 +10,11 @@
 // Usage:
 //   zk-setup --r1cs circuit.r1cs --ptau pot.ptau --out circuit_0000.zkey
 // ============================================================================
+#![allow(
+    clippy::too_many_arguments,
+    clippy::needless_range_loop,
+    clippy::type_complexity
+)]
 
 mod msm_fast;
 mod ptau_reader;
@@ -32,7 +37,10 @@ const G1_SIZE: usize = 64;
 const G2_SIZE: usize = 128;
 
 #[derive(Parser, Debug)]
-#[command(name = "zk-setup", about = "Generate snarkjs-compatible _0000.zkey from ptau + r1cs")]
+#[command(
+    name = "zk-setup",
+    about = "Generate snarkjs-compatible _0000.zkey from ptau + r1cs"
+)]
 struct Args {
     /// Path to the .r1cs file
     #[arg(long)]
@@ -161,10 +169,10 @@ fn write_fq_montgomery_to(buf: &mut Vec<u8>, val: &Fq) {
 
 /// Indices into the Lagrange-basis point arrays, matching the snarkjs convention
 /// for buffer types in the per-signal accumulation entries.
-const TAU_G1: usize = 0;       // tau^i * G1
-const TAU_G2: usize = 1;       // tau^i * G2
+const TAU_G1: usize = 0; // tau^i * G1
+const TAU_G2: usize = 1; // tau^i * G2
 const ALPHA_TAU_G1: usize = 2; // alpha * tau^i * G1
-const BETA_TAU_G1: usize = 3;  // beta * tau^i * G1
+const BETA_TAU_G1: usize = 3; // beta * tau^i * G1
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -304,114 +312,138 @@ fn main() -> Result<()> {
     let beta_tau_g1: Vec<G1Affine> = (0..domain_size as usize)
         .map(|i| read_g1_from_bytes(&ptau.beta_tau_g1_lagrange[i * G1_SIZE..]))
         .collect();
-    eprintln!("[zk-setup] Points parsed in {:.1}s", t.elapsed().as_secs_f64());
+    eprintln!(
+        "[zk-setup] Points parsed in {:.1}s",
+        t.elapsed().as_secs_f64()
+    );
 
     // Fast path: parallel constraint-driven accumulation (default)
-    let (mut ic_bytes, mut points_a_bytes, mut points_b1_bytes, mut points_b2_bytes, mut points_c_bytes);
+    let (
+        mut ic_bytes,
+        mut points_a_bytes,
+        mut points_b1_bytes,
+        mut points_b2_bytes,
+        mut points_c_bytes,
+    );
     #[allow(unused_assignments)]
     if args.fast_msm {
         let t = Instant::now();
         eprintln!("[zk-setup] Computing sections via fast parallel accumulation...");
         let result = msm_fast::compute_all_sections_fast(
-            constraints, n_vars, n_public, num_constraints,
-            &tau_g1, &tau_g2, &alpha_tau_g1, &beta_tau_g1,
+            constraints,
+            n_vars,
+            n_public,
+            num_constraints,
+            &tau_g1,
+            &tau_g2,
+            &alpha_tau_g1,
+            &beta_tau_g1,
         );
         ic_bytes = result.ic_bytes;
         points_a_bytes = result.points_a_bytes;
         points_b1_bytes = result.points_b1_bytes;
         points_b2_bytes = result.points_b2_bytes;
         points_c_bytes = result.points_c_bytes;
-        eprintln!("[zk-setup] Sections computed in {:.1}s", t.elapsed().as_secs_f64());
+        eprintln!(
+            "[zk-setup] Sections computed in {:.1}s",
+            t.elapsed().as_secs_f64()
+        );
     } else {
-    // Slow path: per-signal MSMs (original, kept as reference)
-    let t = Instant::now();
-    eprintln!("[zk-setup] Computing MSMs (slow per-signal path)...");
+        // Slow path: per-signal MSMs (original, kept as reference)
+        let t = Instant::now();
+        eprintln!("[zk-setup] Computing MSMs (slow per-signal path)...");
 
-    // Helper: look up G1 base point from (buf_type, constraint_index)
-    let get_g1_base = |buf_type: usize, ci: usize| -> G1Affine {
-        match buf_type {
-            TAU_G1 => tau_g1[ci],
-            ALPHA_TAU_G1 => alpha_tau_g1[ci],
-            BETA_TAU_G1 => beta_tau_g1[ci],
-            _ => panic!("Invalid G1 buffer type"),
+        // Helper: look up G1 base point from (buf_type, constraint_index)
+        let get_g1_base = |buf_type: usize, ci: usize| -> G1Affine {
+            match buf_type {
+                TAU_G1 => tau_g1[ci],
+                ALPHA_TAU_G1 => alpha_tau_g1[ci],
+                BETA_TAU_G1 => beta_tau_g1[ci],
+                _ => panic!("Invalid G1 buffer type"),
+            }
+        };
+
+        let get_g2_base = |buf_type: usize, ci: usize| -> G2Affine {
+            match buf_type {
+                TAU_G2 => tau_g2[ci],
+                _ => panic!("Invalid G2 buffer type"),
+            }
+        };
+
+        // Compute G1 MSM for a list of accumulation entries
+        fn compute_g1_msm(
+            entries: &[AccumEntry],
+            get_base: impl Fn(usize, usize) -> G1Affine,
+        ) -> G1Affine {
+            if entries.is_empty() {
+                return G1Affine::identity();
+            }
+            let bases: Vec<G1Affine> = entries
+                .iter()
+                .map(|(bt, ci, _)| get_base(*bt, *ci))
+                .collect();
+            let scalars: Vec<Fr> = entries.iter().map(|(_, _, c)| *c).collect();
+            // Use ark-ec MSM
+            let result = <G1Projective as ark_ec::VariableBaseMSM>::msm(&bases, &scalars).unwrap();
+            result.into_affine()
         }
-    };
 
-    let get_g2_base = |buf_type: usize, ci: usize| -> G2Affine {
-        match buf_type {
-            TAU_G2 => tau_g2[ci],
-            _ => panic!("Invalid G2 buffer type"),
+        fn compute_g2_msm(
+            entries: &[AccumEntry],
+            get_base: impl Fn(usize, usize) -> G2Affine,
+        ) -> G2Affine {
+            if entries.is_empty() {
+                return G2Affine::identity();
+            }
+            let bases: Vec<G2Affine> = entries
+                .iter()
+                .map(|(bt, ci, _)| get_base(*bt, *ci))
+                .collect();
+            let scalars: Vec<Fr> = entries.iter().map(|(_, _, c)| *c).collect();
+            let result = <G2Projective as ark_ec::VariableBaseMSM>::msm(&bases, &scalars).unwrap();
+            result.into_affine()
         }
-    };
 
-    // Compute G1 MSM for a list of accumulation entries
-    fn compute_g1_msm(
-        entries: &[AccumEntry],
-        get_base: impl Fn(usize, usize) -> G1Affine,
-    ) -> G1Affine {
-        if entries.is_empty() {
-            return G1Affine::identity();
+        // Section 3: IC points (n_public + 1 G1 points)
+        ic_bytes = Vec::with_capacity((n_public + 1) * G1_SIZE);
+        for s in 0..=n_public {
+            let point = compute_g1_msm(&ic_accum[s], get_g1_base);
+            ic_bytes.extend_from_slice(&write_g1_bytes(&point));
         }
-        let bases: Vec<G1Affine> = entries.iter().map(|(bt, ci, _)| get_base(*bt, *ci)).collect();
-        let scalars: Vec<Fr> = entries.iter().map(|(_, _, c)| *c).collect();
-        // Use ark-ec MSM
-        let result = <G1Projective as ark_ec::VariableBaseMSM>::msm(&bases, &scalars).unwrap();
-        result.into_affine()
-    }
 
-    fn compute_g2_msm(
-        entries: &[AccumEntry],
-        get_base: impl Fn(usize, usize) -> G2Affine,
-    ) -> G2Affine {
-        if entries.is_empty() {
-            return G2Affine::identity();
+        // Section 5: A query (n_vars G1 points)
+        points_a_bytes = Vec::with_capacity(n_vars * G1_SIZE);
+        for item in a_accum.iter() {
+            let point = compute_g1_msm(item, get_g1_base);
+            points_a_bytes.extend_from_slice(&write_g1_bytes(&point));
         }
-        let bases: Vec<G2Affine> = entries.iter().map(|(bt, ci, _)| get_base(*bt, *ci)).collect();
-        let scalars: Vec<Fr> = entries.iter().map(|(_, _, c)| *c).collect();
-        let result = <G2Projective as ark_ec::VariableBaseMSM>::msm(&bases, &scalars).unwrap();
-        result.into_affine()
-    }
 
-    // Section 3: IC points (n_public + 1 G1 points)
-    ic_bytes = Vec::with_capacity((n_public + 1) * G1_SIZE);
-    for s in 0..=n_public {
-        let point = compute_g1_msm(&ic_accum[s], &get_g1_base);
-        ic_bytes.extend_from_slice(&write_g1_bytes(&point));
-    }
+        // Section 6: B1 query (n_vars G1 points)
+        points_b1_bytes = Vec::with_capacity(n_vars * G1_SIZE);
+        for item in b1_accum.iter() {
+            let point = compute_g1_msm(item, get_g1_base);
+            points_b1_bytes.extend_from_slice(&write_g1_bytes(&point));
+        }
 
-    // Section 5: A query (n_vars G1 points)
-    points_a_bytes = Vec::with_capacity(n_vars * G1_SIZE);
-    for s in 0..n_vars {
-        let point = compute_g1_msm(&a_accum[s], &get_g1_base);
-        points_a_bytes.extend_from_slice(&write_g1_bytes(&point));
-    }
+        // Section 7: B2 query (n_vars G2 points)
+        points_b2_bytes = Vec::with_capacity(n_vars * G2_SIZE);
+        for item in b2_accum.iter() {
+            let point = compute_g2_msm(item, get_g2_base);
+            points_b2_bytes.extend_from_slice(&write_g2_bytes(&point));
+        }
 
-    // Section 6: B1 query (n_vars G1 points)
-    points_b1_bytes = Vec::with_capacity(n_vars * G1_SIZE);
-    for s in 0..n_vars {
-        let point = compute_g1_msm(&b1_accum[s], &get_g1_base);
-        points_b1_bytes.extend_from_slice(&write_g1_bytes(&point));
-    }
+        // Section 8: C/L query (n_vars - n_public - 1 G1 points)
+        let n_l = n_vars - n_public - 1;
+        points_c_bytes = Vec::with_capacity(n_l * G1_SIZE);
+        for item in c_accum.iter().take(n_l) {
+            let point = compute_g1_msm(item, get_g1_base);
+            points_c_bytes.extend_from_slice(&write_g1_bytes(&point));
+        }
 
-    // Section 7: B2 query (n_vars G2 points)
-    points_b2_bytes = Vec::with_capacity(n_vars * G2_SIZE);
-    for s in 0..n_vars {
-        let point = compute_g2_msm(&b2_accum[s], &get_g2_base);
-        points_b2_bytes.extend_from_slice(&write_g2_bytes(&point));
-    }
-
-    // Section 8: C/L query (n_vars - n_public - 1 G1 points)
-    let n_l = n_vars - n_public - 1;
-    points_c_bytes = Vec::with_capacity(n_l * G1_SIZE);
-    for s in 0..n_l {
-        let point = compute_g1_msm(&c_accum[s], &get_g1_base);
-        points_c_bytes.extend_from_slice(&write_g1_bytes(&point));
-    }
-
-    eprintln!(
-        "[zk-setup] MSMs computed in {:.1}s",
-        t.elapsed().as_secs_f64()
-    );
+        eprintln!(
+            "[zk-setup] MSMs computed in {:.1}s",
+            t.elapsed().as_secs_f64()
+        );
     } // end of if/else fast_msm
 
     // =========================================================================

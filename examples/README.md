@@ -89,12 +89,14 @@ for sid in sorted(set(list(ref_s.keys()) + list(rust_s.keys()))):
 
 ## Large Circuit (WebAuthn P-256 ECDSA)
 
+See [`webauthn/README.md`](webauthn/README.md) for a complete guide on using
+`zk-setup` with a ~2M constraint unified WebAuthn compliance circuit,
+including benchmarks and on-chain verification results.
+
 ```bash
 # Download a power-21 ptau (for circuits up to 2M constraints)
 curl -L https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_21.ptau -o pot21.ptau
 
-# Generate zkey (~3 minutes on 8-core machine)
-zk-setup --r1cs WebAuthnProof.r1cs --ptau pot21.ptau --out WebAuthnProof_0000.zkey
-
-# Compare: snarkjs would take 60+ minutes for the same circuit
+# Generate zkey (~3 minutes on 8-core machine vs 60+ with snarkjs)
+zk-setup --r1cs UnifiedWebAuthnProof.r1cs --ptau pot21.ptau --out UnifiedWebAuthnProof_0000.zkey
 ```

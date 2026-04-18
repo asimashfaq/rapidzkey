@@ -61,11 +61,21 @@ impl ThreadAccum {
 
     /// Merge another thread's results into self.
     fn merge(&mut self, other: &ThreadAccum) {
-        for i in 0..self.a.len() { self.a[i] += other.a[i]; }
-        for i in 0..self.b1.len() { self.b1[i] += other.b1[i]; }
-        for i in 0..self.b2.len() { self.b2[i] += other.b2[i]; }
-        for i in 0..self.ic.len() { self.ic[i] += other.ic[i]; }
-        for i in 0..self.c.len() { self.c[i] += other.c[i]; }
+        for i in 0..self.a.len() {
+            self.a[i] += other.a[i];
+        }
+        for i in 0..self.b1.len() {
+            self.b1[i] += other.b1[i];
+        }
+        for i in 0..self.b2.len() {
+            self.b2[i] += other.b2[i];
+        }
+        for i in 0..self.ic.len() {
+            self.ic[i] += other.ic[i];
+        }
+        for i in 0..self.c.len() {
+            self.c[i] += other.c[i];
+        }
     }
 }
 
@@ -106,9 +116,12 @@ pub fn compute_all_sections_fast(
     beta_tau_g1: &[G1Affine],
 ) -> SectionPoints {
     let n_threads = rayon::current_num_threads();
-    let chunk_size = (num_constraints + n_threads - 1) / n_threads;
+    let chunk_size = num_constraints.div_ceil(n_threads);
 
-    eprintln!("[zk-setup]   Parallel accumulation: {} threads, {} constraints/chunk", n_threads, chunk_size);
+    eprintln!(
+        "[zk-setup]   Parallel accumulation: {} threads, {} constraints/chunk",
+        n_threads, chunk_size
+    );
 
     // Process constraint chunks in parallel
     let thread_results: Vec<ThreadAccum> = constraints
@@ -164,14 +177,21 @@ pub fn compute_all_sections_fast(
             }
 
             if chunk_idx == 0 || (chunk_idx + 1) % 4 == 0 {
-                eprintln!("[zk-setup]   chunk {}/{} done", chunk_idx + 1, (num_constraints + chunk_size - 1) / chunk_size);
+                eprintln!(
+                    "[zk-setup]   chunk {}/{} done",
+                    chunk_idx + 1,
+                    num_constraints.div_ceil(chunk_size)
+                );
             }
 
             acc
         })
         .collect();
 
-    eprintln!("[zk-setup]   Merging {} thread results...", thread_results.len());
+    eprintln!(
+        "[zk-setup]   Merging {} thread results...",
+        thread_results.len()
+    );
 
     // Merge all thread results
     let mut final_acc = ThreadAccum::new(n_vars, n_public);
@@ -232,8 +252,12 @@ fn write_g1_to(buf: &mut Vec<u8>, point: &G1Affine) {
     } else {
         let x = point.x().unwrap();
         let y = point.y().unwrap();
-        for limb in x.0 .0.iter() { buf.write_u64::<LittleEndian>(*limb).unwrap(); }
-        for limb in y.0 .0.iter() { buf.write_u64::<LittleEndian>(*limb).unwrap(); }
+        for limb in x.0 .0.iter() {
+            buf.write_u64::<LittleEndian>(*limb).unwrap();
+        }
+        for limb in y.0 .0.iter() {
+            buf.write_u64::<LittleEndian>(*limb).unwrap();
+        }
     }
 }
 
@@ -245,9 +269,17 @@ fn write_g2_to(buf: &mut Vec<u8>, point: &G2Affine) {
     } else {
         let x = point.x().unwrap();
         let y = point.y().unwrap();
-        for limb in x.c0.0 .0.iter() { buf.write_u64::<LittleEndian>(*limb).unwrap(); }
-        for limb in x.c1.0 .0.iter() { buf.write_u64::<LittleEndian>(*limb).unwrap(); }
-        for limb in y.c0.0 .0.iter() { buf.write_u64::<LittleEndian>(*limb).unwrap(); }
-        for limb in y.c1.0 .0.iter() { buf.write_u64::<LittleEndian>(*limb).unwrap(); }
+        for limb in x.c0.0 .0.iter() {
+            buf.write_u64::<LittleEndian>(*limb).unwrap();
+        }
+        for limb in x.c1.0 .0.iter() {
+            buf.write_u64::<LittleEndian>(*limb).unwrap();
+        }
+        for limb in y.c0.0 .0.iter() {
+            buf.write_u64::<LittleEndian>(*limb).unwrap();
+        }
+        for limb in y.c1.0 .0.iter() {
+            buf.write_u64::<LittleEndian>(*limb).unwrap();
+        }
     }
 }

@@ -89,18 +89,18 @@ pub fn write_zkey<W: Write>(
     n_public: usize,
     domain_size: u32,
     // VK points from ptau (raw Montgomery bytes)
-    alpha_g1: &[u8],  // 64 bytes
-    beta_g1: &[u8],   // 64 bytes
-    beta_g2: &[u8],   // 128 bytes
+    alpha_g1: &[u8], // 64 bytes
+    beta_g1: &[u8],  // 64 bytes
+    beta_g2: &[u8],  // 128 bytes
     // Pre-computed section data (raw bytes)
-    ic_bytes: &[u8],       // Section 3
-    coefs_bytes: &[u8],    // Section 4
-    points_a_bytes: &[u8], // Section 5
-    points_b1_bytes: &[u8],// Section 6
-    points_b2_bytes: &[u8],// Section 7
-    points_c_bytes: &[u8], // Section 8
-    points_h_bytes: &[u8], // Section 9
-    cs_hash: &[u8],        // 64-byte circuit hash for contributions section
+    ic_bytes: &[u8],        // Section 3
+    coefs_bytes: &[u8],     // Section 4
+    points_a_bytes: &[u8],  // Section 5
+    points_b1_bytes: &[u8], // Section 6
+    points_b2_bytes: &[u8], // Section 7
+    points_c_bytes: &[u8],  // Section 8
+    points_h_bytes: &[u8],  // Section 9
+    cs_hash: &[u8],         // 64-byte circuit hash for contributions section
 ) -> io::Result<()> {
     let g1_gen = g1_generator_bytes();
     let g2_gen = g2_generator_bytes();
@@ -108,9 +108,15 @@ pub fn write_zkey<W: Write>(
     // Build sections
     let section_1 = build_header_section();
     let section_2 = build_header_groth_section(
-        n_vars, n_public, domain_size,
-        alpha_g1, beta_g1, beta_g2,
-        &g2_gen, &g1_gen, &g2_gen,
+        n_vars,
+        n_public,
+        domain_size,
+        alpha_g1,
+        beta_g1,
+        beta_g2,
+        &g2_gen,
+        &g1_gen,
+        &g2_gen,
     );
     let section_10 = build_contributions_section(cs_hash);
 
@@ -176,12 +182,12 @@ fn build_header_groth_section(
     n_vars: usize,
     n_public: usize,
     domain_size: u32,
-    alpha_g1: &[u8],   // 64 bytes from ptau
-    beta_g1: &[u8],    // 64 bytes from ptau
-    beta_g2: &[u8],    // 128 bytes from ptau
-    gamma_g2: &[u8],   // 128 bytes (G2 generator for _0000 zkey)
-    delta_g1: &[u8],   // 64 bytes (G1 generator for _0000 zkey)
-    delta_g2: &[u8],   // 128 bytes (G2 generator for _0000 zkey)
+    alpha_g1: &[u8], // 64 bytes from ptau
+    beta_g1: &[u8],  // 64 bytes from ptau
+    beta_g2: &[u8],  // 128 bytes from ptau
+    gamma_g2: &[u8], // 128 bytes (G2 generator for _0000 zkey)
+    delta_g1: &[u8], // 64 bytes (G1 generator for _0000 zkey)
+    delta_g2: &[u8], // 128 bytes (G2 generator for _0000 zkey)
 ) -> Vec<u8> {
     let mut buf = Vec::new();
 
@@ -200,12 +206,12 @@ fn build_header_groth_section(
     // DomainSize
     buf.write_u32::<LittleEndian>(domain_size).unwrap();
     // VK points
-    buf.extend_from_slice(alpha_g1);   // alpha1
-    buf.extend_from_slice(beta_g1);    // beta1
-    buf.extend_from_slice(beta_g2);    // beta2
-    buf.extend_from_slice(gamma_g2);   // gamma2
-    buf.extend_from_slice(delta_g1);   // delta1
-    buf.extend_from_slice(delta_g2);   // delta2
+    buf.extend_from_slice(alpha_g1); // alpha1
+    buf.extend_from_slice(beta_g1); // beta1
+    buf.extend_from_slice(beta_g2); // beta2
+    buf.extend_from_slice(gamma_g2); // gamma2
+    buf.extend_from_slice(delta_g1); // delta1
+    buf.extend_from_slice(delta_g2); // delta2
 
     buf
 }
@@ -280,10 +286,11 @@ pub fn build_coefs_section(constraints: &[Constraints<Fr>], n_public: usize) -> 
 
     // Identity constraints for public signals AFTER R1CS constraints
     for s in 0..=n_public {
-        buf.write_u32::<LittleEndian>(0).unwrap();                          // matrix A
-        buf.write_u32::<LittleEndian>((n_constraints + s) as u32).unwrap(); // constraint index
-        buf.write_u32::<LittleEndian>(s as u32).unwrap();                   // signal index
-        write_fr_r2(&mut buf, &Fr::from(1u64));                             // value = 1
+        buf.write_u32::<LittleEndian>(0).unwrap(); // matrix A
+        buf.write_u32::<LittleEndian>((n_constraints + s) as u32)
+            .unwrap(); // constraint index
+        buf.write_u32::<LittleEndian>(s as u32).unwrap(); // signal index
+        write_fr_r2(&mut buf, &Fr::from(1u64)); // value = 1
     }
 
     buf
@@ -311,7 +318,7 @@ pub fn build_coefs_section(constraints: &[Constraints<Fr>], n_public: usize) -> 
 ///
 /// This avoids expensive modular exponentiation or explicit R^2 multiplication.
 fn write_fr_r2(buf: &mut Vec<u8>, val: &Fr) {
-    let vr = BigInteger256::new(val.0 .0);       // = std_value * R as BigInteger
+    let vr = BigInteger256::new(val.0 .0); // = std_value * R as BigInteger
     let doubled = Fr::from_bigint(vr).unwrap(); // internal = vr * R = std_value * R^2
     let limbs = &doubled.0 .0;
     for limb in limbs.iter() {

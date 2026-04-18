@@ -49,19 +49,19 @@ pub struct PtauData {
     pub power: u32,
 
     // Header VK points (raw Montgomery bytes, ready to write to zkey)
-    pub alpha_g1: Vec<u8>,  // 64 bytes — alpha*G1 from section 4
-    pub beta_g1: Vec<u8>,   // 64 bytes — beta*G1 from section 5
-    pub beta_g2: Vec<u8>,   // 128 bytes — beta*G2 from section 6
+    pub alpha_g1: Vec<u8>, // 64 bytes — alpha*G1 from section 4
+    pub beta_g1: Vec<u8>,  // 64 bytes — beta*G1 from section 5
+    pub beta_g2: Vec<u8>,  // 128 bytes — beta*G2 from section 6
 
     // Lagrange-basis points for the circuit's domain size
     // tauG1[i] = tau^i * G1 in Lagrange basis (section 12)
-    pub tau_g1_lagrange: Vec<u8>,       // domain_size * 64 bytes
+    pub tau_g1_lagrange: Vec<u8>, // domain_size * 64 bytes
     // tauG2[i] = tau^i * G2 in Lagrange basis (section 13)
-    pub tau_g2_lagrange: Vec<u8>,       // domain_size * 128 bytes
+    pub tau_g2_lagrange: Vec<u8>, // domain_size * 128 bytes
     // alphaTauG1[i] = alpha * tau^i * G1 in Lagrange basis (section 14)
     pub alpha_tau_g1_lagrange: Vec<u8>, // domain_size * 64 bytes
     // betaTauG1[i] = beta * tau^i * G1 in Lagrange basis (section 15)
-    pub beta_tau_g1_lagrange: Vec<u8>,  // domain_size * 64 bytes
+    pub beta_tau_g1_lagrange: Vec<u8>, // domain_size * 64 bytes
 
     // For H query: 2*domain_size tauG1 Lagrange points from the doubled domain (section 12)
     pub tau_g1_lagrange_doubled: Vec<u8>, // 2*domain_size * 64 bytes
@@ -201,7 +201,7 @@ fn ifft_g1(points: &mut [G1Projective]) {
     let mut step = 2;
     while step <= n {
         let half = step / 2;
-        let w_step = omega_inv.pow(&[(n / step) as u64]);
+        let w_step = omega_inv.pow([(n / step) as u64]);
 
         // Precompute twiddle factors for this level
         let twiddles: Vec<Fr> = {
@@ -218,16 +218,14 @@ fn ifft_g1(points: &mut [G1Projective]) {
         let num_groups = n / step;
         if num_groups >= 4 {
             // Enough groups to benefit from parallelism
-            points
-                .par_chunks_mut(step)
-                .for_each(|chunk| {
-                    for i in 0..half {
-                        let u = chunk[i];
-                        let v = chunk[i + half] * twiddles[i];
-                        chunk[i] = u + v;
-                        chunk[i + half] = u - v;
-                    }
-                });
+            points.par_chunks_mut(step).for_each(|chunk| {
+                for i in 0..half {
+                    let u = chunk[i];
+                    let v = chunk[i + half] * twiddles[i];
+                    chunk[i] = u + v;
+                    chunk[i + half] = u - v;
+                }
+            });
         } else {
             for j in 0..num_groups {
                 let base = j * step;
@@ -246,7 +244,7 @@ fn ifft_g1(points: &mut [G1Projective]) {
     // Scale by 1/n
     let n_inv = Fr::from(n as u64).inverse().unwrap();
     points.par_iter_mut().for_each(|p| {
-        *p = *p * n_inv;
+        *p *= n_inv;
     });
 }
 
@@ -276,7 +274,7 @@ fn ifft_g2(points: &mut [G2Projective]) {
     let mut step = 2;
     while step <= n {
         let half = step / 2;
-        let w_step = omega_inv.pow(&[(n / step) as u64]);
+        let w_step = omega_inv.pow([(n / step) as u64]);
 
         // Precompute twiddle factors for this level
         let twiddles: Vec<Fr> = {
@@ -292,16 +290,14 @@ fn ifft_g2(points: &mut [G2Projective]) {
         // Parallelise over independent butterfly groups
         let num_groups = n / step;
         if num_groups >= 4 {
-            points
-                .par_chunks_mut(step)
-                .for_each(|chunk| {
-                    for i in 0..half {
-                        let u = chunk[i];
-                        let v = chunk[i + half] * twiddles[i];
-                        chunk[i] = u + v;
-                        chunk[i + half] = u - v;
-                    }
-                });
+            points.par_chunks_mut(step).for_each(|chunk| {
+                for i in 0..half {
+                    let u = chunk[i];
+                    let v = chunk[i + half] * twiddles[i];
+                    chunk[i] = u + v;
+                    chunk[i + half] = u - v;
+                }
+            });
         } else {
             for j in 0..num_groups {
                 let base = j * step;
@@ -320,7 +316,7 @@ fn ifft_g2(points: &mut [G2Projective]) {
     // Scale by 1/n
     let n_inv = Fr::from(n as u64).inverse().unwrap();
     points.par_iter_mut().for_each(|p| {
-        *p = *p * n_inv;
+        *p *= n_inv;
     });
 }
 
@@ -412,7 +408,10 @@ pub fn read_ptau<R: Read + Seek>(reader: &mut R, domain_size: usize) -> io::Resu
     let mut magic = [0u8; 4];
     reader.read_exact(&mut magic)?;
     if &magic != b"ptau" {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid ptau magic"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid ptau magic",
+        ));
     }
 
     let _version = reader.read_u32::<LittleEndian>()?;
@@ -434,7 +433,13 @@ pub fn read_ptau<R: Read + Seek>(reader: &mut R, domain_size: usize) -> io::Resu
         if section_size > 100_000_000_000 {
             break;
         }
-        sections.insert(section_id, Section { position, size: section_size });
+        sections.insert(
+            section_id,
+            Section {
+                position,
+                size: section_size,
+            },
+        );
         if reader.seek(SeekFrom::Current(section_size as i64)).is_err() {
             break;
         }
@@ -442,7 +447,10 @@ pub fn read_ptau<R: Read + Seek>(reader: &mut R, domain_size: usize) -> io::Resu
 
     // Read header (section 1)
     let sec1 = sections.get(&1).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 1 (header)")
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Missing ptau section 1 (header)",
+        )
     })?;
     reader.seek(SeekFrom::Start(sec1.position))?;
     let n8q = reader.read_u32::<LittleEndian>()?;
@@ -455,30 +463,33 @@ pub fn read_ptau<R: Read + Seek>(reader: &mut R, domain_size: usize) -> io::Resu
     if cir_power > power {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("Circuit domain {} (power {}) exceeds ptau power {}", domain_size, cir_power, power),
+            format!(
+                "Circuit domain {} (power {}) exceeds ptau power {}",
+                domain_size, cir_power, power
+            ),
         ));
     }
 
     // Read alpha*G1 from section 4, offset 0 (first G1 point)
-    let sec4 = sections.get(&4).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 4")
-    })?;
+    let sec4 = sections
+        .get(&4)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 4"))?;
     reader.seek(SeekFrom::Start(sec4.position))?;
     let mut alpha_g1 = vec![0u8; G1_SIZE];
     reader.read_exact(&mut alpha_g1)?;
 
     // Read beta*G1 from section 5, offset 0
-    let sec5 = sections.get(&5).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 5")
-    })?;
+    let sec5 = sections
+        .get(&5)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 5"))?;
     reader.seek(SeekFrom::Start(sec5.position))?;
     let mut beta_g1 = vec![0u8; G1_SIZE];
     reader.read_exact(&mut beta_g1)?;
 
     // Read beta*G2 from section 6, offset 0
-    let sec6 = sections.get(&6).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 6")
-    })?;
+    let sec6 = sections
+        .get(&6)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 6"))?;
     reader.seek(SeekFrom::Start(sec6.position))?;
     let mut beta_g2 = vec![0u8; G2_SIZE];
     reader.read_exact(&mut beta_g2)?;
@@ -487,7 +498,10 @@ pub fn read_ptau<R: Read + Seek>(reader: &mut R, domain_size: usize) -> io::Resu
     // Layout: lagrange points for domains 2^1, 2^2, ..., 2^power
     // Domain of size 2^k starts at offset (2^k - 1) * G1_SIZE within section 12
     let sec12 = sections.get(&12).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 12 (tauG1 Lagrange)")
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Missing ptau section 12 (tauG1 Lagrange)",
+        )
     })?;
 
     // Read domain_size points for the circuit's domain
@@ -507,9 +521,9 @@ pub fn read_ptau<R: Read + Seek>(reader: &mut R, domain_size: usize) -> io::Resu
     // Sections 13, 14, 15: read if present, otherwise compute via IFFT
     // ========================================================================
 
-    let has_section_13 = sections.get(&13).map_or(false, |s| s.size > 0);
-    let has_section_14 = sections.get(&14).map_or(false, |s| s.size > 0);
-    let has_section_15 = sections.get(&15).map_or(false, |s| s.size > 0);
+    let has_section_13 = sections.get(&13).is_some_and(|s| s.size > 0);
+    let has_section_14 = sections.get(&14).is_some_and(|s| s.size > 0);
+    let has_section_15 = sections.get(&15).is_some_and(|s| s.size > 0);
 
     let need_ntt = !has_section_13 || !has_section_14 || !has_section_15;
 
@@ -533,7 +547,10 @@ pub fn read_ptau<R: Read + Seek>(reader: &mut R, domain_size: usize) -> io::Resu
     } else {
         eprintln!("[zk-setup] Computing tauG2 Lagrange (section 13) from monomial section 3...");
         let sec3 = sections.get(&3).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 3 (tauG2 monomial), needed to compute section 13")
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Missing ptau section 3 (tauG2 monomial), needed to compute section 13",
+            )
         })?;
         reader.seek(SeekFrom::Start(sec3.position))?;
         let mut monomial_bytes = vec![0u8; domain_size * G2_SIZE];
@@ -552,9 +569,14 @@ pub fn read_ptau<R: Read + Seek>(reader: &mut R, domain_size: usize) -> io::Resu
         reader.read_exact(&mut buf)?;
         buf
     } else {
-        eprintln!("[zk-setup] Computing alphaTauG1 Lagrange (section 14) from monomial section 4...");
+        eprintln!(
+            "[zk-setup] Computing alphaTauG1 Lagrange (section 14) from monomial section 4..."
+        );
         let sec4_full = sections.get(&4).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 4 (alphaTauG1 monomial), needed to compute section 14")
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Missing ptau section 4 (alphaTauG1 monomial), needed to compute section 14",
+            )
         })?;
         reader.seek(SeekFrom::Start(sec4_full.position))?;
         let mut monomial_bytes = vec![0u8; domain_size * G1_SIZE];
@@ -573,9 +595,14 @@ pub fn read_ptau<R: Read + Seek>(reader: &mut R, domain_size: usize) -> io::Resu
         reader.read_exact(&mut buf)?;
         buf
     } else {
-        eprintln!("[zk-setup] Computing betaTauG1 Lagrange (section 15) from monomial section 5...");
+        eprintln!(
+            "[zk-setup] Computing betaTauG1 Lagrange (section 15) from monomial section 5..."
+        );
         let sec5_full = sections.get(&5).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "Missing ptau section 5 (betaTauG1 monomial), needed to compute section 15")
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Missing ptau section 5 (betaTauG1 monomial), needed to compute section 15",
+            )
         })?;
         reader.seek(SeekFrom::Start(sec5_full.position))?;
         let mut monomial_bytes = vec![0u8; domain_size * G1_SIZE];
