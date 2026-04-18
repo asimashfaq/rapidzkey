@@ -1,0 +1,8 @@
+/target
+Cargo.lock
+*.ptau
+*.zkey
+*.r1cs
+*.wasm
+*.wtns
+*.sym

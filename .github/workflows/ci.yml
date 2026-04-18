@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release
+      - name: Check formatting
+        run: cargo fmt -- --check
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+  test-multiplier:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install circom
+        run: |
+          curl -Ls https://github.com/iden3/circom/releases/latest/download/circom-linux-amd64 -o /usr/local/bin/circom
+          chmod +x /usr/local/bin/circom
+      - name: Install snarkjs
+        run: npm install -g snarkjs
+      - name: Create test circuit
+        run: |
+          mkdir -p test_circuit
+          cat > test_circuit/multiplier.circom << 'CIRCOM'
+          pragma circom 2.0.0;
+          template Multiplier() {
+              signal input a;
+              signal input b;
+              signal output c;
+              c <== a * b;
+          }
+          component main {public [a]} = Multiplier();
+          CIRCOM
+          cd test_circuit
+          circom multiplier.circom --r1cs --wasm --sym -o .
+      - name: Download ptau
+        run: curl -sL https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_10.ptau -o test_circuit/pot10.ptau
+      - name: Build zk-setup
+        run: cargo build --release
+      - name: Generate reference zkey (snarkjs)
+        run: snarkjs groth16 setup test_circuit/multiplier.r1cs test_circuit/pot10.ptau test_circuit/ref_0000.zkey
+      - name: Generate zkey (zk-setup)
+        run: ./target/release/zk-setup --r1cs test_circuit/multiplier.r1cs --ptau test_circuit/pot10.ptau --out test_circuit/rust_0000.zkey
+      - name: Byte-diff sections 1-9
+        run: |
+          python3 -c "
+          import struct
+          def read_sections(path):
+              sections = {}
+              with open(path, 'rb') as f:
+                  f.read(12)
+                  while True:
+                      try:
+                          sid = struct.unpack('<I', f.read(4))[0]
+                          size = struct.unpack('<Q', f.read(8))[0]
+                          if size > 1e12: break
+                          sections[sid] = f.read(size)
+                      except: break
+              return sections
+          ref_s = read_sections('test_circuit/ref_0000.zkey')
+          rust_s = read_sections('test_circuit/rust_0000.zkey')
+          ok = True
+          for sid in range(1, 10):
+              match = ref_s.get(sid, b'') == rust_s.get(sid, b'')
+              print(f'Section {sid}: {\"MATCH\" if match else \"DIFF\"}')
+              if not match: ok = False
+          assert ok, 'Sections 1-9 must be byte-identical'
+          print('All sections match!')
+          "
+      - name: Verify proof with snarkjs
+        run: |
+          cd test_circuit
+          echo '{"a": "3", "b": "5"}' > input.json
+          node -e "
+          const s = require('snarkjs');
+          (async () => {
+            const r = await s.groth16.fullProve({a:'3',b:'5'}, 'multiplier_js/multiplier.wasm', '../test_circuit/rust_0000.zkey');
+            const vk = await s.zKey.exportVerificationKey('../test_circuit/rust_0000.zkey');
+            const ok = await s.groth16.verify(vk, r.publicSignals, r.proof);
+            console.log('Verify:', ok);
+            if (!ok) process.exit(1);
+          })();
+          "
